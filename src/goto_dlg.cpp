@@ -27,14 +27,6 @@ static const wchar_t AHist[]{ L"HexitorGotoAddr" };
 
 LONG_PTR WINAPI goto_dlg::dlg_proc(HANDLE dlg, int msg, int param1, LONG_PTR param2)
 {
-	goto_dlg* instance = nullptr;
-	if (msg != DN_INITDIALOG)
-		instance = reinterpret_cast<goto_dlg*>(_PSI.SendDlgMessage(dlg, DM_GETDLGDATA, 0, 0));
-	else {
-		instance = reinterpret_cast<goto_dlg*>(param2);
-		_PSI.SendDlgMessage(dlg, DM_SETDLGDATA, 0, (LONG_PTR)instance);
-	}
-	assert(instance);
 	/*
 	// TODO implement checks uppon return
 	if (msg == DN_BTNCLICK && (param1 == radiohexID || param1 == radioperID) && reinterpret_cast<LONG_PTR>(param2) == BSTATE_CHECKED) {
@@ -69,13 +61,13 @@ bool goto_dlg::show(const UINT64 file_size, UINT64& offset)
 {
 	_file_size = file_size;
 
-	fardialog::DlgMASKED maskoff(nullptr, _hex_mask, DIF_HISTORY | DIF_MASKEDIT);
+	fardialog::DlgMASKED maskoff("tb_mask", nullptr, _hex_mask, DIF_HISTORY | DIF_MASKEDIT);
 	// TODO manage history in aHist
-	fardialog::DlgRADIOBUTTON radiohex(_PSI.GetMsg(_PSI.ModuleNumber, ps_goto_hex), DIF_GROUP, false);
-	fardialog::DlgRADIOBUTTON radioper(_PSI.GetMsg(_PSI.ModuleNumber, ps_goto_percent), 0, false);
+	fardialog::DlgRADIOBUTTON radiohex("rb_hex", _PSI.GetMsg(_PSI.ModuleNumber, ps_goto_hex), DIF_GROUP, false);
+	fardialog::DlgRADIOBUTTON radioper("rb_percent", _PSI.GetMsg(_PSI.ModuleNumber, ps_goto_percent), 0, false);
 	fardialog::DlgHLine hline0;
-	fardialog::DlgBUTTON button1(_PSI.GetMsg(_PSI.ModuleNumber, ps_ok), DIF_CENTERGROUP | DIF_DEFAULT);
-	fardialog::DlgBUTTON button2(_PSI.GetMsg(_PSI.ModuleNumber, ps_cancel), DIF_CENTERGROUP);
+	fardialog::DlgBUTTON button1("bn_ok", _PSI.GetMsg(_PSI.ModuleNumber, ps_ok), DIF_CENTERGROUP | DIF_DEFAULT, 0, 1);
+	fardialog::DlgBUTTON button2("bn_cancel", _PSI.GetMsg(_PSI.ModuleNumber, ps_cancel), DIF_CENTERGROUP);
 
 	std::vector<fardialog::Window*> hbox1c = {&radiohex, &radioper};
 	fardialog::DlgHSizer hbox1(hbox1c);
@@ -89,27 +81,31 @@ bool goto_dlg::show(const UINT64 file_size, UINT64& offset)
 	};
 	fardialog::DlgVSizer vbox1(vbox1c);
 
-	fardialog::Dialog dlg(&_PSI, _PSI.GetMsg(_PSI.ModuleNumber, ps_goto_title), nullptr, 0, &goto_dlg::dlg_proc, (LONG_PTR)this);
+	typedef LONG_PTR (WINAPI goto_dlg::*tdlgproc)(HANDLE dlg, int msg, int param1, LONG_PTR param2);
+
+	fardialog::DialogT<goto_dlg, tdlgproc> dlg(
+		&_PSI, _PSI.GetMsg(_PSI.ModuleNumber, ps_goto_title),
+		0,
+		0,
+		*this, &goto_dlg::dlg_proc
+	);
 	dlg.buildFDI(&vbox1);
 
-	pdlg = &dlg;
-	maskoffID = maskoff.ID;
-	radiohexID = radiohex.ID;
-	radioperID = radioper.ID;
+	dlgptr = &dlg;
 
 	const HANDLE hDlg = dlg.DialogInit();
 	const int rc = _PSI.DialogRun(hDlg);
 
-	if (rc == button1.ID )
-		offset = get_val(hDlg);
+	if (rc == dlg.getID("bn_ok") )
+		offset = get_val();
 	_PSI.DialogFree(hDlg);
-	return button1.ID;
+	return rc == dlg.getID("bn_ok");
 }
 
-UINT64 goto_dlg::get_val(HANDLE dlg) const
+UINT64 goto_dlg::get_val() const
 {
 	UINT64 offset = 0;
-	std::wstring val(pdlg->GetText(maskoffID));
+	std::wstring val(dlgptr->GetText(dlgptr->getID("tb_mask")));
 	if( val.length() > 0 ){
 		if (val[val.length() - 1] == L'%'){
 			UINT64 percent = 0;

@@ -42,9 +42,6 @@ private:
 	static void save();
 
 	//Far dialog's callback
-	static int DCID_BTN_COLOR_OFFSET;
-	static int DCID_BTN_COLOR_ACTIVE;
-	static int DCID_BTN_COLOR_UPDATE;
 	static LONG_PTR WINAPI dlg_proc(HANDLE dlg, int Msg, int Param1, LONG_PTR Param2);
 
 public:

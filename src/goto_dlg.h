@@ -37,18 +37,14 @@ public:
 private:
 	/**
 	 * Get current offset value
-	 * \param dlg dialog handle
 	 * \return current offset value
 	 */
-	UINT64 get_val(HANDLE dlg) const;
+	UINT64 get_val() const;
 
 	//Far dialog's callback
-	static LONG_PTR WINAPI dlg_proc(HANDLE dlg, int msg, int param1, LONG_PTR param2);
+	LONG_PTR WINAPI dlg_proc(HANDLE dlg, int msg, int param1, LONG_PTR param2);
 
 private:
 	UINT64	_file_size;
-	fardialog::Dialog *pdlg;
-	int maskoffID;
-	int radiohexID;
-	int radioperID;
+	fardialog::Dialog *dlgptr;
 };

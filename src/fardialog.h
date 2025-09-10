@@ -1,10 +1,14 @@
 #pragma once
+#include <cassert>
 #include <string>
 #include <vector>
+#include <map>
 #include <algorithm>
 #include <iostream>
 
 #include <farplug-wide.h>
+
+extern PluginStartupInfo _PSI;
 
 namespace fardialog {
 
@@ -13,6 +17,8 @@ class Sizer;
 class Dialog {
 public:
     Sizer *contents;
+	std::map<const char *, int> name2fdi;
+    std::vector<FarDialogItem> fdi;
     PluginStartupInfo *plugin;
     int width;
     int height;
@@ -20,12 +26,11 @@ public:
     const wchar_t *helptopic;
     int flags;
     FARWINDOWPROC cb;
-    std::vector<FarDialogItem> fdi;
 	HANDLE hDlg;
 	LONG_PTR param;
 
-    Dialog(PluginStartupInfo *plugin, const wchar_t *title_, const wchar_t *helptopic_, int flags_, FARWINDOWPROC cb_, LONG_PTR param_)
-        : plugin(plugin), title(title_), helptopic(helptopic_), flags(flags_), cb(cb_), param(param_)
+    Dialog(PluginStartupInfo *plugin_, const wchar_t *title_, const wchar_t *helptopic_, int flags_, FARWINDOWPROC cb_, LONG_PTR param_)
+        : plugin(plugin_), title(title_), helptopic(helptopic_), flags(flags_), cb(cb_), param(param_)
     {
     }
     void CreateFDI(int fdiCount) {
@@ -41,10 +46,17 @@ public:
     void show();
 	HANDLE DialogInit();
 
+	int getID(const char *name) {
+		std::map<const char *,int>::iterator it = name2fdi.find(name);
+  		if (it != name2fdi.end())
+			return it->second;
+		assert(false);
+		return -1;
+	}
+
 	int DialogRun() {
 		return plugin->DialogRun(hDlg);
 	}
-
 	void DialogFree() {
 		plugin->DialogFree(hDlg);
 	}
@@ -164,6 +176,37 @@ public:
     }
 };
 
+template <typename TClass, typename TCall>
+class DialogT : public Dialog {
+public:
+	TClass &inst;
+	TCall cb;
+    DialogT(
+		PluginStartupInfo *plugin_,
+		const wchar_t *title_, 
+		const wchar_t *helptopic_,
+		int flags_,
+		TClass &inst_,
+		TCall cb_
+	)
+		:Dialog(plugin_, title_, helptopic_, flags_, &dlgcb, (LONG_PTR)this),
+		inst(inst_),
+		cb(cb_)
+	{}
+	static LONG_PTR WINAPI dlgcb(HANDLE dlg, int msg, int param1, LONG_PTR param2)
+    {
+		DialogT<TClass, TCall>* instance = nullptr;
+		if (msg != DN_INITDIALOG)
+			instance = reinterpret_cast<DialogT<TClass, TCall>*>(_PSI.SendDlgMessage(dlg, DM_GETDLGDATA, 0, 0));
+		else {
+			instance = reinterpret_cast<DialogT<TClass, TCall>*>(param2);
+			_PSI.SendDlgMessage(dlg, DM_SETDLGDATA, 0, (LONG_PTR)instance);
+		}
+		assert(instance);
+		return ((instance->inst).*(instance->cb))(dlg, msg, param1, param2);
+    }
+};
+
 enum Orientation {
     horizontal = 0,
     vertical = 1
@@ -278,18 +321,18 @@ class Element : public Window {
 public:
     FarDialogItem *fdi;
     DialogItemTypes dialogType;
+	const char *elemname;
 	const wchar_t *text;
     DWORD flags;
     int focus;
     int DefaultButton;
     size_t MaxLen;
-	int ID;
 
-	Element(DialogItemTypes dialogType_, const wchar_t* text_ = nullptr, DWORD flags_ = 0, int focus_ = 0, int DefaultButton_ = 0, size_t MaxLen_ = 0)
-        : Window(), dialogType(dialogType_), text(text_), flags(flags_), focus(focus_), DefaultButton(DefaultButton_), MaxLen(MaxLen_) {}
+	Element(DialogItemTypes dialogType_, const char *elemname_ = nullptr, const wchar_t* text_ = nullptr, DWORD flags_ = 0, int focus_ = 0, int DefaultButton_ = 0, size_t MaxLen_ = 0)
+        : Window(), dialogType(dialogType_), elemname(elemname_), text(text_), flags(flags_), focus(focus_), DefaultButton(DefaultButton_), MaxLen(MaxLen_) {}
     void makeItem(Dialog *dlg, int& no) override {
         fdi = &dlg->fdi[no];
-		this->ID = no;
+		dlg->name2fdi.insert(std::pair<const char *,int>(elemname, no));
         dlg->fdi[no] = {
             dialogType,
             pos.x, pos.y, pos.x + size.width - 1, pos.y + size.height - 1,
@@ -318,8 +361,8 @@ public:
 class DlgTEXT : public Element {
 public:
 
-	DlgTEXT(const wchar_t *text_)
-        : Element(DI_TEXT, text_) {}
+	DlgTEXT(const char *elemname_, const wchar_t *text_)
+        : Element(DI_TEXT, elemname_, text_) {}
     Size get_best_size() const override {
         std::wstring t(text);
         t.erase(std::remove(t.begin(), t.end(), '&'), t.end());
@@ -336,8 +379,8 @@ class DlgEDIT : public Element {
 public:
     int width;
 
-	DlgEDIT(int width_, int maxlength = 0)
-        : Element(DI_EDIT), width(width_) {
+	DlgEDIT(const char *elemname_, int width_, int maxlength = 0)
+        : Element(DI_EDIT, elemname_), width(width_) {
 		MaxLen = ( maxlength > 0 ) ? maxlength : width_;
 	}
     Size get_best_size() const override {
@@ -349,8 +392,8 @@ class DlgPASSWORD : public Element {
 public:
     int width;
 
-	DlgPASSWORD(int width, int maxlength = 0)
-		: Element(DI_PSWEDIT), width(width) {
+	DlgPASSWORD(const char *elemname_, int width, int maxlength = 0)
+		: Element(DI_PSWEDIT, elemname_), width(width) {
 		MaxLen = ( maxlength > 0 ) ? maxlength : width;
 	}
     Size get_best_size() const override {
@@ -368,8 +411,8 @@ class DlgMASKED : public Element {
 public:
 	const wchar_t *mask;
 
-	DlgMASKED(const wchar_t *text_, const wchar_t *mask_, DWORD flags_=0)
-        : Element(DI_FIXEDIT, text_, flags_), mask(mask_){}
+	DlgMASKED(const char *elemname_, const wchar_t *text_, const wchar_t *mask_, DWORD flags_=0)
+        : Element(DI_FIXEDIT, elemname_, text_, flags_), mask(mask_){}
     Size get_best_size() const override {
         return Size(wcslen(mask), 1);
     }
@@ -383,8 +426,8 @@ public:
 class DlgBUTTON : public Element {
 public:
 
-	DlgBUTTON(const wchar_t *text_, DWORD flags_ = 0, int focus_ = 0, int DefaultButton_ = 0)
-        : Element(DI_BUTTON, text_, flags_, focus_, DefaultButton_) {}
+	DlgBUTTON(const char *elemname_, const wchar_t *text_, DWORD flags_ = 0, int focus_ = 0, int DefaultButton_ = 0)
+        : Element(DI_BUTTON, elemname_, text_, flags_, focus_, DefaultButton_) {}
     Size get_best_size() const override {
         std::wstring t(text);
         t.erase(std::remove(t.begin(), t.end(), '&'), t.end());
@@ -402,8 +445,8 @@ class DlgCHECKBOX : public Element {
 public:
 	bool checked;
 
-	DlgCHECKBOX(const wchar_t *text_, bool checked_)
-        : Element(DI_CHECKBOX, text_), checked(checked_) {}
+	DlgCHECKBOX(const char *elemname_, const wchar_t *text_, bool checked_)
+        : Element(DI_CHECKBOX, elemname_, text_), checked(checked_) {}
 
 	Size get_best_size() const override {
         std::wstring t(text);
@@ -428,8 +471,8 @@ class DlgRADIOBUTTON : public Element{
 public:
 	bool selected;
 
-	DlgRADIOBUTTON(const wchar_t *text_, DWORD flags_=0, bool selected_=false)
-        : Element(DI_RADIOBUTTON, text_, flags_), selected(selected_) {}
+	DlgRADIOBUTTON(const char *elemname_, const wchar_t *text_, DWORD flags_=0, bool selected_=false)
+        : Element(DI_RADIOBUTTON, elemname_, text_, flags_), selected(selected_) {}
 
 	Size get_best_size() const override {
         std::wstring t(text);
@@ -451,8 +494,8 @@ public:
 	FarList &items;
 	int width;
 
-	DlgCOMBOBOX(FarList &items_, int width_=0)
-        : Element(DI_COMBOBOX), items(items_) {
+	DlgCOMBOBOX(const char *elemname_, FarList &items_, int width_=0)
+        : Element(DI_COMBOBOX, elemname_), items(items_) {
 		if(width_ > 0) width = width_;
 		else {
 			for(int i=0; i<items.ItemsNumber; i++)
@@ -481,8 +524,8 @@ public:
 	int width;
 	int height;
 
-	DlgLISTBOX(FarList &items_, int width_=0, int height_=0)
-        : Element(DI_LISTBOX), items(items_), height(height_) {
+	DlgLISTBOX(const char *elemname_, FarList &items_, int width_=0, int height_=0)
+        : Element(DI_LISTBOX, elemname_), items(items_), height(height_) {
 		if(width_ > 0) width = width_;
 		else {
 			for(int i=0; i<items.ItemsNumber; i++)
@@ -514,8 +557,8 @@ public:
     int width;
     int height;
 
-	USERCONTROL(int width_, int height_)
-        : Element(DI_USERCONTROL), width(width_), height(height_) {}
+	USERCONTROL(const char *elemname_, int width_, int height_)
+        : Element(DI_USERCONTROL, elemname_), width(width_), height(height_) {}
 	Size get_best_size() const override {
         return Size(width, height);
     }
@@ -523,8 +566,8 @@ public:
 
 class DlgHLine : public Element {
 public:
-    DlgHLine(const wchar_t *text_=nullptr)
-		: Element(DI_TEXT, text_, DIF_SEPARATOR) {}
+    DlgHLine(const char *elemname_=nullptr, const wchar_t *text_=nullptr)
+		: Element(DI_TEXT, elemname_, text_, DIF_SEPARATOR) {}
     Size get_best_size() const override {
         return Size(1, 1);
     }
