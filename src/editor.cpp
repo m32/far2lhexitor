@@ -401,8 +401,9 @@ bool editor::move_handle_key(int key)
 	bool event_handled = true;
 	keybar_ctl::state kb_state = _keybar.get_state();
 	bool ctrl_pressed = (kb_state == keybar_ctl::st_ctrl);
+	int keyx = key & ~(KEY_CTRL|KEY_ALT|KEY_SHIFT);
 
-	switch (key) {
+	switch (keyx) {
 		case KEY_TAB:
 			_cursor_iha = !_cursor_iha;
 			//_cursor_fbp = true;
